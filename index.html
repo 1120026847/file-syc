@@ -101,123 +101,177 @@
 
 <script>
 (function(){
-  // --------- 路由 / 房间标识 ----------
-  function randId(n=5){ const s='abcdefghijklmnopqrstuvwxyz'; let r=''; for(let i=0;i<n;i++) r+=s[Math.floor(Math.random()*s.length)]; return r; }
-  const isRoot = location.pathname === '/' || location.pathname === '';
+  'use strict';
+
+  // ---------- 路由 / 房间 ----------
+  function randId(n){ var s='abcdefghijklmnopqrstuvwxyz', r=''; for(var i=0;i<n;i++){ r+=s[Math.floor(Math.random()*s.length)]; } return r; }
+  var isRoot = (location.pathname === '/' || location.pathname === '');
   if(isRoot){
-    const id = randId(5);
-    location.replace('/'+id);
+    var id = randId(5);
+    location.replace('/' + id);
+    return; // 结束本轮脚本，避免后续运行在旧路径上
   }
-  const ROOM = decodeURIComponent(location.pathname.replace(/^\\//,''));
-  const shareEl = document.getElementById('share');
-  const copyLinkBtn = document.getElementById('copy-link');
-  const aliasInput = document.getElementById('alias');
-  const setAliasBtn = document.getElementById('set-alias');
-  const origin = location.origin || (location.protocol+'//'+location.host);
-  const roomUrl = origin + '/' + encodeURIComponent(ROOM);
-  shareEl.textContent = roomUrl; shareEl.href = roomUrl;
-  copyLinkBtn.onclick = async ()=>{ await navigator.clipboard.writeText(roomUrl); copyLinkBtn.textContent='已复制'; setTimeout(()=>copyLinkBtn.textContent='复制当前链接',1000); };
-  setAliasBtn.onclick = ()=>{
-    const v = (aliasInput.value||'').trim().replace(/\\s+/g,'-').toLowerCase();
-    if(!v) return;
-    location.href = '/' + encodeURIComponent(v);
-  };
+  var ROOM = decodeURIComponent(location.pathname.replace(/^\//,''));
+  var origin = location.origin || (location.protocol + '//' + location.host);
+  var roomUrl = origin + '/' + encodeURIComponent(ROOM);
 
-  // --------- 上传逻辑（拖拽 / 选择 / 粘贴） ----------
-  const drop = document.getElementById('drop');
-  const picker = document.getElementById('picker');
-  const pickBtn = document.getElementById('pick-btn');
-  const refreshBtn = document.getElementById('refresh-btn');
-  const listEl = document.getElementById('list');
+  // ---------- 顶部交互 ----------
+  var shareEl = document.getElementById('share');
+  var copyLinkBtn = document.getElementById('copy-link');
+  var aliasInput = document.getElementById('alias');
+  var setAliasBtn = document.getElementById('set-alias');
+  if(shareEl){ shareEl.textContent = roomUrl; shareEl.href = roomUrl; }
 
-  function stop(e){ e.preventDefault(); e.stopPropagation(); }
-  ['dragenter','dragover','dragleave','drop'].forEach(ev => drop.addEventListener(ev, stop, false));
-  drop.addEventListener('dragover', ()=> drop.classList.add('dragover'));
-  drop.addEventListener('dragleave', ()=> drop.classList.remove('dragover'));
-  drop.addEventListener('drop', async (e)=>{
-    drop.classList.remove('dragover');
-    const files = [...(e.dataTransfer?.files || [])];
-    if(files.length) await uploadFiles(files);
+  if(copyLinkBtn){
+    copyLinkBtn.addEventListener('click', function(){
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(roomUrl).then(function(){
+          copyLinkBtn.textContent = '已复制';
+          setTimeout(function(){ copyLinkBtn.textContent = '复制当前链接'; }, 1000);
+        });
+      }else{
+        // 兼容非常老的环境
+        window.prompt('复制当前链接', roomUrl);
+      }
+    });
+  }
+
+  if(setAliasBtn){
+    setAliasBtn.addEventListener('click', function(){
+      var v = (aliasInput.value || '').trim().replace(/\s+/g,'-').toLowerCase();
+      if(!v) return;
+      location.href = '/' + encodeURIComponent(v);
+    });
+  }
+
+  // ---------- 上传与列表 ----------
+  var drop = document.getElementById('drop');
+  var picker = document.getElementById('picker');
+  var pickBtn = document.getElementById('pick-btn');
+  var refreshBtn = document.getElementById('refresh-btn');
+  var listEl = document.getElementById('list');
+
+  function stop(e){ if(e){ e.preventDefault(); e.stopPropagation(); } }
+  if(drop){
+    ['dragenter','dragover','dragleave','drop'].forEach(function(ev){
+      drop.addEventListener(ev, stop, false);
+    });
+    drop.addEventListener('dragover', function(){ drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave', function(){ drop.classList.remove('dragover'); });
+    drop.addEventListener('drop', function(e){
+      drop.classList.remove('dragover');
+      var fl = (e && e.dataTransfer && e.dataTransfer.files) ? Array.prototype.slice.call(e.dataTransfer.files) : [];
+      if(fl.length) uploadFiles(fl);
+    });
+  }
+
+  document.addEventListener('paste', function(e){
+    var fl = (e && e.clipboardData && e.clipboardData.files) ? Array.prototype.slice.call(e.clipboardData.files) : [];
+    if(fl.length) uploadFiles(fl);
   });
 
-  document.addEventListener('paste', async (e)=>{
-    // 支持从剪贴板粘贴文件（截图等）
-    const files = [...(e.clipboardData?.files || [])];
-    if(files.length) await uploadFiles(files);
-  });
-
-  pickBtn.onclick = ()=> picker.click();
-  picker.onchange = async ()=>{
-    const files = [...picker.files];
-    if(files.length) await uploadFiles(files);
-    picker.value = '';
-  };
-  refreshBtn.onclick = listFiles;
-
-  async function uploadFiles(files){
-    const form = new FormData();
-    for(const f of files){ form.append('file', f, f.name); }
-    const btnText = pickBtn.textContent;
-    pickBtn.textContent = '上传中…'; pickBtn.disabled = true;
-
-    try{
-      const res = await fetch(`/api/upload?room=${encodeURIComponent(ROOM)}`, { method:'POST', body: form });
-      if(!res.ok) throw new Error(await res.text());
-      await listFiles(); // 上传完成后刷新列表
-    }catch(err){
-      alert('上传失败：' + err.message + '\\n提示：Vercel Server Upload 单次请求体上限约 4.5MB。');
-    }finally{
-      pickBtn.textContent = btnText; pickBtn.disabled = false;
-    }
+  if(pickBtn && picker){
+    pickBtn.addEventListener('click', function(){ picker.click(); });
+    picker.addEventListener('change', function(){
+      var fl = Array.prototype.slice.call(picker.files || []);
+      if(fl.length) uploadFiles(fl);
+      picker.value = '';
+    });
   }
+
+  if(refreshBtn){ refreshBtn.addEventListener('click', listFiles); }
 
   function fmtSize(n){
-    if(n==null) return '';
-    const u=['B','KB','MB','GB']; let i=0; let x=n;
-    while(x>=1024 && i<u.length-1){ x/=1024; i++; } return x.toFixed(i?1:0)+u[i];
+    if(typeof n !== 'number') return '';
+    var u=['B','KB','MB','GB'], i=0, x=n;
+    while(x>=1024 && i<u.length-1){ x/=1024; i++; }
+    return (i ? x.toFixed(1) : Math.round(x)) + u[i];
   }
 
-  async function listFiles(){
-    const res = await fetch(`/api/list?room=${encodeURIComponent(ROOM)}`);
-    if(!res.ok){ listEl.innerHTML = '<div class="muted small">加载失败</div>'; return; }
-    const data = await res.json();
-    const files = data.files || [];
-    if(files.length===0){
-      listEl.innerHTML = '<div class="muted small">暂无文件</div>';
-      return;
-    }
-    listEl.innerHTML = '';
-    for(const f of files){
-      const row = document.createElement('div'); row.className='item';
-      const left = document.createElement('div');
-      left.style.flex='1';
-      left.innerHTML = \`<div class="name">\${f.pathname.split('/').pop()}</div>
-                         <div class="muted small">\${f.contentType || ''} · \${fmtSize(f.size)}</div>\`;
-      const actions = document.createElement('div'); actions.className='actions';
-      const btnCopyLink = document.createElement('button'); btnCopyLink.className='btn small'; btnCopyLink.textContent='复制链接';
-      btnCopyLink.onclick = async ()=>{ await navigator.clipboard.writeText(f.url); btnCopyLink.textContent='已复制'; setTimeout(()=>btnCopyLink.textContent='复制链接', 800); };
-      const aDownload = document.createElement('a'); aDownload.className='btn small'; aDownload.textContent='下载'; aDownload.href=f.downloadUrl || f.url; aDownload.download='';
-      actions.append(btnCopyLink, aDownload);
+  function uploadFiles(files){
+    var form = new FormData();
+    for(var i=0;i<files.length;i++){ form.append('file', files[i], files[i].name); }
+    var oldTxt = pickBtn ? pickBtn.textContent : '';
+    if(pickBtn){ pickBtn.textContent = '上传中…'; pickBtn.disabled = true; }
 
-      // 尝试复制“文件内容”到系统剪贴板（兼容支持）
-      if(navigator.clipboard && window.ClipboardItem){
-        const btnCopyFile = document.createElement('button'); btnCopyFile.className='btn small'; btnCopyFile.textContent='复制文件';
-        btnCopyFile.onclick = async ()=>{
-          try{
-            const blob = await (await fetch(f.url)).blob();
-            await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'application/octet-stream']: blob })]);
-            btnCopyFile.textContent='已复制';
-            setTimeout(()=>btnCopyFile.textContent='复制文件',800);
-          }catch(e){ alert('浏览器不允许复制该类型文件到剪贴板'); }
-        };
-        actions.append(btnCopyFile);
-      }
-
-      row.append(left, actions); listEl.append(row);
-    }
+    fetch('/api/upload?room='+encodeURIComponent(ROOM), { method:'POST', body: form })
+      .then(function(res){
+        if(!res.ok){ return res.text().then(function(t){ throw new Error(t || res.status); }); }
+        return res.json();
+      })
+      .then(function(){ listFiles(); })
+      .catch(function(err){
+        alert('上传失败：' + err.message + '\n提示：Server Upload 单次请求体上限约 4.5MB。');
+      })
+      .finally(function(){
+        if(pickBtn){ pickBtn.textContent = oldTxt; pickBtn.disabled = false; }
+      });
   }
 
-  // 初始加载 + 轮询刷新（轻量“同步”）
+  function listFiles(){
+    fetch('/api/list?room='+encodeURIComponent(ROOM))
+      .then(function(res){ return res.json(); })
+      .then(function(data){
+        var files = (data && data.files) ? data.files : [];
+        if(!listEl) return;
+        if(!files.length){
+          listEl.innerHTML = '<div class="muted small">暂无文件</div>';
+          return;
+        }
+        listEl.innerHTML = '';
+        files.forEach(function(f){
+          var row = document.createElement('div'); row.className='item';
+          var left = document.createElement('div'); left.style.flex='1';
+          var name = (f.pathname || '').split('/').pop();
+          var ct = f.contentType || '';
+          var size = (typeof f.size === 'number') ? fmtSize(f.size) : '';
+          left.innerHTML = '<div class="name">'+ name +'</div><div class="muted small">'+ ct+' · '+size +'</div>';
+
+          var actions = document.createElement('div'); actions.className='actions';
+
+          var btnCopyLink = document.createElement('button'); btnCopyLink.className='btn small'; btnCopyLink.textContent='复制链接';
+          btnCopyLink.addEventListener('click', function(){
+            if(navigator.clipboard && navigator.clipboard.writeText){
+              navigator.clipboard.writeText(f.url);
+              btnCopyLink.textContent='已复制';
+              setTimeout(function(){ btnCopyLink.textContent='复制链接'; }, 800);
+            }else{
+              window.prompt('复制该链接', f.url);
+            }
+          });
+
+          var aDownload = document.createElement('a'); aDownload.className='btn small'; aDownload.textContent='下载';
+          aDownload.href = f.downloadUrl || f.url; aDownload.download = '';
+
+          actions.appendChild(btnCopyLink);
+          actions.appendChild(aDownload);
+
+          // 尝试复制“文件本体”到系统剪贴板（仅在支持 ClipboardItem 的浏览器工作）
+          if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+            var btnCopyFile = document.createElement('button'); btnCopyFile.className='btn small'; btnCopyFile.textContent='复制文件';
+            btnCopyFile.addEventListener('click', function(){
+              fetch(f.url).then(function(r){ return r.blob(); }).then(function(b){
+                var data = {}; data[b.type || 'application/octet-stream'] = b;
+                return navigator.clipboard.write([ new ClipboardItem(data) ]);
+              }).then(function(){
+                btnCopyFile.textContent='已复制';
+                setTimeout(function(){ btnCopyFile.textContent='复制文件'; }, 800);
+              }).catch(function(){ alert('浏览器不支持把该类型写入剪贴板'); });
+            });
+            actions.appendChild(btnCopyFile);
+          }
+
+          row.appendChild(left);
+          row.appendChild(actions);
+          listEl.appendChild(row);
+        });
+      })
+      .catch(function(){
+        if(listEl){ listEl.innerHTML = '<div class="muted small">加载失败</div>'; }
+      });
+  }
+
+  // 初次渲染 + 轮询“同步”
   listFiles();
   setInterval(listFiles, 3000);
 })();
