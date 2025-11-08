@@ -1,7 +1,6 @@
 // api/clear.js
 import { list, del } from '@vercel/blob';
 
-export const config = { runtime: 'nodejs18.x' };
 
 export default async function handler(request) {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
