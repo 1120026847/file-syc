@@ -1,7 +1,6 @@
 // api/upload.js
 import { put, list, del } from '@vercel/blob';
 
-export const config = { runtime: 'nodejs18.x' }; // 使用 Node Web Handler (Vercel Functions)
 
 function sanitize(name) {
   return name.replace(/[\\s]+/g, '-').replace(/[\\\\/]+/g, '-').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 200) || 'file';
